@@ -1,0 +1,2796 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Sparkles,
+  Star,
+  Award,
+  Flame,
+  Play,
+  BookOpen,
+  Brain,
+  Calculator,
+  Microscope,
+  PenTool,
+  Coins,
+  Lock,
+  CheckCircle2,
+  ChevronRight,
+  ArrowLeft,
+  Clock,
+  ShieldCheck,
+  TrendingUp,
+  User,
+  Settings,
+  Volume2,
+  VolumeX,
+  Smile,
+  Trophy,
+  Gamepad2,
+  Heart,
+  Target,
+  BarChart3,
+  Home,
+  Check,
+  RotateCcw,
+  RefreshCw,
+  Zap,
+  Music,
+  BookMarked,
+  MessageSquare,
+  HelpCircle,
+  Shapes,
+  Printer,
+  Compass,
+  Ear
+} from 'lucide-react';
+
+const QUESTIONS_PER_SESSION = 10;
+const CORRECT_FEEDBACK_DELAY = 1400;
+const INCORRECT_FEEDBACK_DELAY = 1800;
+const RESULT_COUNTDOWN = 10;
+const XP_PER_CORRECT = 10;
+const XP_SESSION_BONUS = 20;
+const STAR_PER_CORRECT = 1;
+
+// Web Speech Synthesis Helper for Pronunciation
+const speakText = (text, lang = 'en-US') => {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel(); // stop previous speech
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = lang;
+  utterance.rate = 0.85; // slightly slower for young kids
+  utterance.pitch = 1.1;
+  window.speechSynthesis.speak(utterance);
+};
+
+// Audio Synth Feedback System
+const playAudioFeedback = (type, soundEnabled) => {
+  if (!soundEnabled) return;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === 'correct' || type === 'pop' || type === 'match') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(type === 'pop' ? 600 : 523.25, ctx.currentTime);
+      osc.frequency.setValueAtTime(type === 'pop' ? 880 : 659.25, ctx.currentTime + 0.08);
+      if (type !== 'pop') osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.18);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + (type === 'pop' ? 0.25 : 0.4));
+      osc.start();
+      osc.stop(ctx.currentTime + (type === 'pop' ? 0.25 : 0.4));
+    } else {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(311.13, ctx.currentTime);
+      osc.frequency.setValueAtTime(233.08, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    }
+  } catch (e) {
+    // Audio Context fallback
+  }
+};
+
+const INITIAL_CHILD_PROFILE = {
+  name: 'Aina',
+  age: 5,
+  level: 'Beginner',
+  avatar: '👧🏻',
+  stars: 195,
+  xp: 780,
+  badges: 12,
+  completedActivities: 32,
+  streakDays: 6,
+  weeklyMinutes: 150,
+  lastActive: 'Today',
+  bmProgress: {
+    level1: { completed: 22, stars: 70, total: 30 },
+    level2: { completed: 15, stars: 50, total: 30 },
+    level3: { completed: 8, stars: 25, total: 30 }
+  },
+  mathProgress: {
+    level1: { completed: 18, stars: 55, total: 30 },
+    level2: { completed: 10, stars: 30, total: 30 },
+    level3: { completed: 5, stars: 15, total: 30 }
+  },
+  englishProgress: {
+    level1: { completed: 15, stars: 45, total: 30 },
+    level2: { completed: 8, stars: 25, total: 30 },
+    level3: { completed: 2, stars: 10, total: 30 }
+  },
+  scienceProgress: {
+    level1: { completed: 10, stars: 30, total: 30 },
+    level2: { completed: 4, stars: 12, total: 30 },
+    level3: { completed: 0, stars: 0, total: 30 }
+  }
+};
+
+// ================= BAHASA MELAYU QUESTIONS =================
+const BAHASA_MELAYU_QUESTIONS = [
+  {
+    id: 'bm-l1-t1-q1',
+    level: 1,
+    topic: 'Kenal Huruf',
+    type: 'multiple-choice',
+    question: 'Gambar Ayam (🐓) bermula dengan huruf apa?',
+    visual: '🐓',
+    speechText: 'Ayam bermula dengan huruf A',
+    options: ['A', 'B', 'C', 'D'],
+    correctAnswer: 0,
+    explanation: 'A untuk Ayam! 🐓',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'bm-l1-t1-q2',
+    level: 1,
+    topic: 'Kenal Huruf',
+    type: 'multiple-choice',
+    question: 'Gambar Bola (⚽) bermula dengan huruf apa?',
+    visual: '⚽',
+    speechText: 'Bola bermula dengan huruf B',
+    options: ['M', 'B', 'K', 'S'],
+    correctAnswer: 1,
+    explanation: 'B untuk Bola! ⚽',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'bm-l1-t1-q3',
+    level: 1,
+    topic: 'Kenal Huruf',
+    type: 'multiple-choice',
+    question: 'Pilih huruf awal bagi Cawan (☕):',
+    visual: '☕',
+    speechText: 'Cawan bermula dengan huruf C',
+    options: ['A', 'P', 'C', 'L'],
+    correctAnswer: 2,
+    explanation: 'C untuk Cawan! ☕',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'bm-l1-t2-q1',
+    level: 1,
+    topic: 'Bunyi Huruf',
+    type: 'multiple-choice',
+    question: 'Huruf manakah yang berbunyi /i/... "iiii-kan"?',
+    visual: '🐟',
+    speechText: 'Huruf I berbunyi i seperti ikan',
+    options: ['E', 'A', 'I', 'U'],
+    correctAnswer: 2,
+    explanation: 'Huruf I berbunyi /i/ seperti Ikan! 🐟',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'bm-l1-t4-q1',
+    level: 1,
+    topic: 'Suku Kata Mudah',
+    type: 'multiple-choice',
+    question: 'Pilih suku kata: B + A = ?',
+    visual: '🅱️ + 🅰️',
+    speechText: 'B plus A menjadi BA',
+    options: ['BA', 'BU', 'BI', 'BO'],
+    correctAnswer: 0,
+    explanation: 'B + A menjadi BA!',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'bm-l2-t1-q1',
+    level: 2,
+    topic: 'Suku Kata',
+    type: 'multiple-choice',
+    question: 'Pilih suku kata pertama bagi "BOLA" (⚽):',
+    visual: '⚽',
+    speechText: 'Suku kata pertama bola ialah BO',
+    options: ['BA', 'BO', 'BU', 'BI'],
+    correctAnswer: 1,
+    explanation: 'Suku kata pertama BOLA ialah BO!',
+    difficulty: 'Medium'
+  },
+  {
+    id: 'bm-l2-t2-q1',
+    level: 2,
+    topic: 'Cantum Suku Kata',
+    type: 'multiple-choice',
+    question: 'Cantumkan suku kata: BA + JU = ?',
+    visual: '👕',
+    speechText: 'BA plus JU menjadi BAJU',
+    options: ['BATA', 'BAJU', 'BATU', 'BAPA'],
+    correctAnswer: 1,
+    explanation: 'BA + JU menjadi BAJU! 👕',
+    difficulty: 'Medium'
+  },
+  {
+    id: 'bm-l3-t1-q1',
+    level: 3,
+    topic: 'Reading',
+    type: 'multiple-choice',
+    question: 'Baca ayat ini: "Kucing comel itu suka makan ikan." Apakah yang dimakan oleh kucing?',
+    visual: '🐱 🐟',
+    speechText: 'Kucing comel itu suka makan ikan.',
+    options: ['Nasi', 'Ikan', 'Roti', 'Susu'],
+    correctAnswer: 1,
+    explanation: 'Kucing comel itu suka makan ikan! 🐟',
+    difficulty: 'Hard'
+  }
+];
+
+// ================= MATHEMATICS QUESTIONS =================
+const MATHEMATICS_QUESTIONS = [
+  {
+    id: 'math-l1-t1-q1',
+    level: 1,
+    topic: 'Kenal Nombor',
+    type: 'multiple-choice',
+    question: 'Berapakah jumlah epal ini? 🍎🍎🍎',
+    visual: '🍎 🍎 🍎',
+    speechText: 'Count the apples: one, two, three!',
+    options: ['2', '3', '4', '5'],
+    correctAnswer: 1,
+    explanation: 'Ada 3 biji epal merah! 🍎🍎🍎',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'math-l1-t1-q2',
+    level: 1,
+    topic: 'Kenal Nombor',
+    type: 'multiple-choice',
+    question: 'Manakah nombor "LIMA"?',
+    visual: '🖐️ (5 Jari)',
+    speechText: 'Which one is number 5?',
+    options: ['3', '5', '7', '9'],
+    correctAnswer: 1,
+    explanation: 'Nombor 5 mewakili lima jari! 🖐️',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'math-l1-t2-q1',
+    level: 1,
+    topic: 'Bilangan & Kuantiti',
+    type: 'multiple-choice',
+    question: 'Pilih kumpulan yang ada LEBIH BANYAK belon:',
+    visual: '🎈🎈🎈🎈  VS  🎈🎈',
+    speechText: 'Which group has more balloons?',
+    options: ['4 Belon 🎈', '2 Belon 🎈', 'Sama banyak'],
+    correctAnswer: 0,
+    explanation: '4 belon adalah lebih banyak daripada 2 belon!',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'math-l2-t1-q1',
+    level: 2,
+    topic: 'Tambah Asas',
+    type: 'multiple-choice',
+    question: 'Berapakah 2 + 3 = ?',
+    visual: '🍎🍎 + 🍎🍎🍎',
+    speechText: 'What is 2 plus 3?',
+    options: ['4', '5', '6', '7'],
+    correctAnswer: 1,
+    explanation: '2 epal tambah 3 epal menjadi 5 epal! 🍎',
+    difficulty: 'Medium'
+  },
+  {
+    id: 'math-l2-t2-q1',
+    level: 2,
+    topic: 'Tolak Asas',
+    type: 'multiple-choice',
+    question: 'Ada 5 belon. 2 belon pecah! Tinggal berapa? 🎈',
+    visual: '🎈🎈🎈🎈🎈 - 🎈🎈',
+    speechText: '5 balloons minus 2 balloons equals what?',
+    options: ['2', '3', '4', '1'],
+    correctAnswer: 1,
+    explanation: '5 tolak 2 menjadi 3 belon! 🎈',
+    difficulty: 'Medium'
+  },
+  {
+    id: 'math-l3-t3-q1',
+    level: 3,
+    topic: 'Wang Ringgit',
+    type: 'multiple-choice',
+    question: 'Kira jumlah wang syiling ini: 50 sen + 20 sen = ?',
+    visual: '🪙 (50¢) + 🪙 (20¢)',
+    speechText: '50 cents plus 20 cents equals what?',
+    options: ['60 sen', '70 sen', '80 sen', 'RM1.00'],
+    correctAnswer: 1,
+    explanation: '50 sen + 20 sen = 70 sen! 🪙',
+    difficulty: 'Hard'
+  }
+];
+
+// ================= ENGLISH PHONICS QUESTIONS =================
+const ENGLISH_PHONICS_QUESTIONS = [
+  {
+    id: 'en-l1-t1-q1',
+    level: 1,
+    topic: 'Letter Sounds',
+    type: 'multiple-choice',
+    question: 'Which letter starts the word "APPLE"? 🍎',
+    visual: '🍎',
+    speechText: 'A is for Apple! /æ/ /æ/ Apple!',
+    options: ['A', 'B', 'C', 'D'],
+    correctAnswer: 0,
+    explanation: 'A is for Apple! /æ/ /æ/ Apple! 🍎',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'en-l1-t1-q2',
+    level: 1,
+    topic: 'Letter Sounds',
+    type: 'multiple-choice',
+    question: 'Which letter sound goes /b/ /b/... "BALL"? ⚽',
+    visual: '⚽',
+    speechText: 'B makes the b sound in Ball',
+    options: ['P', 'B', 'M', 'T'],
+    correctAnswer: 1,
+    explanation: 'B makes the /b/ sound in Ball! ⚽',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'en-l1-t2-q1',
+    level: 1,
+    topic: 'Phonics ABC',
+    type: 'multiple-choice',
+    question: 'What animal begins with the letter "C"? 🐱',
+    visual: '🐱',
+    speechText: 'C is for Cat',
+    options: ['Dog', 'Cat', 'Fish', 'Bird'],
+    correctAnswer: 1,
+    explanation: 'C is for Cat! 🐱',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'en-l2-t1-q1',
+    level: 2,
+    topic: 'CVC Words',
+    type: 'multiple-choice',
+    question: 'Blend these sounds: C - A - T = ? 🐱',
+    visual: 'C + A + T',
+    speechText: 'k - a - t blends into Cat',
+    options: ['CUT', 'CAT', 'COT', 'CAP'],
+    correctAnswer: 1,
+    explanation: '/k/ + /æ/ + /t/ = CAT! 🐱',
+    difficulty: 'Medium'
+  },
+  {
+    id: 'en-l2-t1-q2',
+    level: 2,
+    topic: 'CVC Words',
+    type: 'multiple-choice',
+    question: 'Spell the word for this picture: 🐶',
+    visual: '🐶',
+    speechText: 'D - O - G spells Dog',
+    options: ['DIG', 'DUCK', 'DOG', 'DOT'],
+    correctAnswer: 2,
+    explanation: 'D - O - G spells DOG! 🐶',
+    difficulty: 'Medium'
+  },
+  {
+    id: 'en-l3-t1-q1',
+    level: 3,
+    topic: 'Sight Words',
+    type: 'multiple-choice',
+    question: 'Read the sentence: "The cat is on the mat." Where is the cat?',
+    visual: '🐱 🛋️',
+    speechText: 'The cat is on the mat.',
+    options: ['In the box', 'On the mat', 'Under the table', 'In the car'],
+    correctAnswer: 1,
+    explanation: 'The cat is on the mat! 🐱',
+    difficulty: 'Hard'
+  }
+];
+
+// ================= SAINS AWAL (EARLY SCIENCE) QUESTIONS =================
+const SCIENCE_QUESTIONS = [
+  {
+    id: 'sci-l1-t1-q1',
+    level: 1,
+    topic: 'Deria Manusia',
+    type: 'multiple-choice',
+    question: 'Organ deria manakah yang digunakan untuk MENDENGAR muzik? 🎵',
+    visual: '👂 🎵',
+    speechText: 'Organ deria manakah yang digunakan untuk mendengar?',
+    options: ['Mata 👁️', 'Telinga 👂', 'Hidung 👃', 'Lidah 👅'],
+    correctAnswer: 1,
+    explanation: 'Kita mendengar bunyi menggunakan Telinga! 👂',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'sci-l1-t1-q2',
+    level: 1,
+    topic: 'Haiwan',
+    type: 'multiple-choice',
+    question: 'Haiwan manakah yang Boleh Terbang di udara? 🕊️',
+    visual: '🕊️ 🐟 🐱 🐢',
+    speechText: 'Haiwan manakah yang boleh terbang?',
+    options: ['Ikan 🐟', 'Burung 🕊️', 'Kucing 🐱', 'Penyu 🐢'],
+    correctAnswer: 1,
+    explanation: 'Burung mempunyai kepak dan boleh terbang! 🕊️',
+    difficulty: 'Easy'
+  },
+  {
+    id: 'sci-l2-t1-q1',
+    level: 2,
+    topic: 'Tumbuhan',
+    type: 'multiple-choice',
+    question: 'Apakah yang diperlukan oleh pokok untuk membesar? 🌱',
+    visual: '🌱 ☀️ 💧',
+    speechText: 'Apakah yang diperlukan oleh pokok untuk membesar?',
+    options: ['Air & Cahaya Matahari ☀️💧', 'Minyak & Ais 🧊', 'Gula & Susu 🥛', 'Batu 🪨'],
+    correctAnswer: 0,
+    explanation: 'Tumbuhan perlukan air dan cahaya matahari untuk hidup! 🌱☀️️',
+    difficulty: 'Medium'
+  },
+  {
+    id: 'sci-l2-t2-q1',
+    level: 2,
+    topic: 'Cuaca',
+    type: 'multiple-choice',
+    question: 'Apakah yang patut kita guna semasa Hujan? 🌧️',
+    visual: '🌧️ ☔',
+    speechText: 'Apakah yang patut kita guna semasa hujan?',
+    options: ['Kipas 🪭', 'Payung ☔', 'Topi Pantai 👒', 'Cermin Mata 🕶️'],
+    correctAnswer: 1,
+    explanation: 'Gunakan payung ☔ supaya tidak basah terkena hujan!',
+    difficulty: 'Medium'
+  }
+];
+
+const PHONICS_FLASHCARDS = [
+  { letter: 'A', word: 'Apple', sound: '/æ/', emoji: '🍎', example: 'A is for Apple' },
+  { letter: 'B', word: 'Ball', sound: '/b/', emoji: '⚽', example: 'B is for Ball' },
+  { letter: 'C', word: 'Cat', sound: '/k/', emoji: '🐱', example: 'C is for Cat' },
+  { letter: 'D', word: 'Dog', sound: '/d/', emoji: '🐶', example: 'D is for Dog' },
+  { letter: 'E', word: 'Egg', sound: '/e/', emoji: '🥚', example: 'E is for Egg' },
+  { letter: 'F', word: 'Fish', sound: '/f/', emoji: '🐟', example: 'F is for Fish' },
+  { letter: 'G', word: 'Giraffe', sound: '/dʒ/', emoji: '🦒', example: 'G is for Giraffe' },
+  { letter: 'H', word: 'Hat', sound: '/h/', emoji: '🎩', example: 'H is for Hat' },
+  { letter: 'I', word: 'Igloo', sound: '/ɪ/', emoji: '🧊', example: 'I is for Igloo' },
+  { letter: 'J', word: 'Juice', sound: '/dʒ/', emoji: '🧃', example: 'J is for Juice' },
+  { letter: 'K', word: 'Kite', sound: '/k/', emoji: '🪁', example: 'K is for Kite' },
+  { letter: 'L', word: 'Lion', sound: '/l/', emoji: '🦁', example: 'L is for Lion' },
+  { letter: 'M', word: 'Monkey', sound: '/m/', emoji: '🐒', example: 'M is for Monkey' },
+  { letter: 'N', word: 'Nest', sound: '/n/', emoji: '🪹', example: 'N is for Nest' },
+  { letter: 'O', word: 'Orange', sound: '/ɒ/', emoji: '🍊', example: 'O is for Orange' },
+  { letter: 'P', word: 'Penguin', sound: '/p/', emoji: '🐧', example: 'P is for Penguin' },
+  { letter: 'Q', word: 'Queen', sound: '/kw/', emoji: '👑', example: 'Q is for Queen' },
+  { letter: 'R', word: 'Rabbit', sound: '/r/', emoji: '🐰', example: 'R is for Rabbit' },
+  { letter: 'S', word: 'Sun', sound: '/s/', emoji: '☀️', example: 'S is for Sun' },
+  { letter: 'T', word: 'Tiger', sound: '/t/', emoji: '🐯', example: 'T is for Tiger' },
+  { letter: 'U', word: 'Umbrella', sound: '/ʌ/', emoji: '☂️', example: 'U is for Umbrella' },
+  { letter: 'V', word: 'Violin', sound: '/v/', emoji: '🎻', example: 'V is for Violin' },
+  { letter: 'W', word: 'Watermelon', sound: '/w/', emoji: '🍉', example: 'W is for Watermelon' },
+  { letter: 'X', word: 'Xylophone', sound: '/ks/', emoji: '🎼', example: 'X is for Xylophone' },
+  { letter: 'Y', word: 'Yo-yo', sound: '/j/', emoji: '🪀', example: 'Y is for Yo-yo' },
+  { letter: 'Z', word: 'Zebra', sound: '/z/', emoji: '🦓', example: 'Z is for Zebra' }
+];
+
+const CerdikMascot = ({ className = "w-10 h-10" }) => (
+  <div className={`relative flex items-center justify-center ${className}`}>
+    <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md">
+      <polygon
+        points="50,5 64,34 96,38 72,61 78,93 50,77 22,93 28,61 4,38 36,34"
+        fill="#FFD166"
+        stroke="#F4A261"
+        strokeWidth="3"
+        strokeLinejoin="round"
+      />
+      <polygon points="50,15 80,26 50,37 20,26" fill="#264653" />
+      <rect x="42" y="27" width="16" height="10" fill="#2A9D8F" rx="2" />
+      <line x1="75" y1="27" x2="75" y2="42" stroke="#E76F51" strokeWidth="2.5" />
+      <circle cx="75" cy="44" r="3.5" fill="#E76F51" />
+      <circle cx="38" cy="50" r="5" fill="#264653" />
+      <circle cx="62" cy="50" r="5" fill="#264653" />
+      <circle cx="40" cy="48" r="1.8" fill="#FFFFFF" />
+      <circle cx="64" cy="48" r="1.8" fill="#FFFFFF" />
+      <circle cx="30" cy="58" r="4" fill="#F4A261" opacity="0.5" />
+      <circle cx="70" cy="58" r="4" fill="#F4A261" opacity="0.5" />
+      <path
+        d="M 40 62 Q 50 72 60 62"
+        fill="none"
+        stroke="#264653"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  </div>
+);
+
+const Header = ({ currentView, setCurrentView, childProfile, soundEnabled, setSoundEnabled }) => {
+  return (
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-sky-100 shadow-sm">
+      <div className="max-w-6xl mx-auto px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2">
+        <div
+          onClick={() => setCurrentView('home')}
+          className="flex items-center gap-2 sm:gap-3 cursor-pointer group select-none"
+        >
+          <CerdikMascot className="w-10 h-10 sm:w-11 sm:h-11 group-hover:scale-110 transition-transform duration-200" />
+          <div>
+            <div className="flex items-center gap-1">
+              <span className="font-extrabold text-xl sm:text-2xl tracking-tight bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                CerdikKids
+              </span>
+              <span className="bg-purple-100 text-purple-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full border border-purple-200 shadow-2xs">
+                STAGE 4A+
+              </span>
+            </div>
+            <p className="text-[10px] sm:text-xs font-semibold text-amber-500 tracking-wide uppercase -mt-0.5">
+              Learn • Play • Science • Phonics & Math
+            </p>
+          </div>
+        </div>
+
+        <nav className="hidden md:flex items-center gap-1.5 lg:gap-2 bg-sky-50/70 p-1.5 rounded-2xl border border-sky-100">
+          {[
+            { id: 'home', label: 'Home', icon: Home },
+            { id: 'learn', label: 'Learn', icon: BookOpen },
+            { id: 'soundboard', label: 'Phonics ABC', icon: Ear },
+            { id: 'games', label: 'Games', icon: Gamepad2 },
+            { id: 'rewards', label: 'Rewards', icon: Trophy },
+            { id: 'parent', label: 'Parent', icon: ShieldCheck }
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = currentView === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setCurrentView(item.id)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold transition-all duration-200 min-h-[44px] ${
+                  isActive
+                    ? 'bg-sky-500 text-white shadow-md shadow-sky-200 scale-[1.02]'
+                    : 'text-gray-600 hover:text-sky-600 hover:bg-white/80'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className="p-2 sm:p-2.5 rounded-xl text-gray-500 hover:bg-sky-50 hover:text-sky-600 transition-colors border border-gray-200 min-h-[44px] min-w-[44px] flex items-center justify-center"
+            title={soundEnabled ? 'Sound On' : 'Sound Muted'}
+          >
+            {soundEnabled ? (
+              <Volume2 className="w-5 h-5 text-sky-500" />
+            ) : (
+              <VolumeX className="w-5 h-5 text-gray-400" />
+            )}
+          </button>
+
+          <div
+            onClick={() => setCurrentView('rewards')}
+            className="flex items-center gap-2 bg-amber-50 hover:bg-amber-100/80 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl border border-amber-200/70 transition-all cursor-pointer shadow-sm min-h-[44px]"
+          >
+            <span className="text-xl sm:text-2xl">{childProfile.avatar}</span>
+            <div className="text-left leading-tight hidden sm:block">
+              <div className="text-xs font-bold text-gray-800">{childProfile.name}</div>
+              <div className="text-[10px] text-gray-500 font-semibold">{childProfile.xp || 780} XP</div>
+            </div>
+            <div className="flex items-center gap-1 bg-amber-400/20 px-2 py-1 rounded-xl text-amber-800 font-extrabold text-xs sm:text-sm border border-amber-300/50">
+              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+              <span>{childProfile.stars}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+};
+
+const MobileBottomNav = ({ currentView, setCurrentView }) => {
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-sky-100 px-2 py-1.5 shadow-lg">
+      <div className="flex justify-around items-center max-w-md mx-auto">
+        {[
+          { id: 'home', label: 'Home', icon: Home },
+          { id: 'learn', label: 'Learn', icon: BookOpen },
+          { id: 'soundboard', label: 'Phonics', icon: Ear },
+          { id: 'games', label: 'Games', icon: Gamepad2 },
+          { id: 'rewards', label: 'Rewards', icon: Trophy },
+          { id: 'parent', label: 'Parent', icon: ShieldCheck }
+        ].map((item) => {
+          const Icon = item.icon;
+          const isActive = currentView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setCurrentView(item.id)}
+              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all min-h-[48px] min-w-[52px] ${
+                isActive ? 'text-sky-600 font-extrabold' : 'text-gray-500 font-medium hover:text-sky-500'
+              }`}
+            >
+              <div className={`p-1 rounded-xl ${isActive ? 'bg-sky-100 text-sky-600 scale-110' : ''}`}>
+                <Icon className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ================= PHONICS SOUNDBOARD & FLASHCARDS COMPONENT =================
+const PhonicsSoundboard = () => {
+  const [activeCard, setActiveCard] = useState(PHONICS_FLASHCARDS[0]);
+
+  const handleCardClick = (card) => {
+    setActiveCard(card);
+    speakText(`${card.letter}! ${card.sound}! ${card.word}!`, 'en-US');
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="bg-gradient-to-r from-sky-400 via-indigo-500 to-purple-500 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="max-w-xl space-y-2">
+          <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5">
+            <Ear className="w-4 h-4 text-amber-300" /> Interactive Phonics Audio Explorer
+          </span>
+          <h1 className="text-3xl font-extrabold">A–Z Phonics Soundboard 🔤</h1>
+          <p className="text-sky-100 text-xs sm:text-sm font-medium">
+            Tap any letter card to hear the pronunciation, phonics sound, and example word!
+          </p>
+        </div>
+      </div>
+
+      {/* Featured Active Card */}
+      <div className="bg-white rounded-3xl p-6 border-2 border-sky-200 shadow-md flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-6">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 bg-gradient-to-tr from-amber-200 to-amber-400 rounded-3xl flex items-center justify-center text-5xl font-black text-gray-800 shadow-inner border-2 border-amber-300">
+            {activeCard.letter}
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-3xl font-extrabold text-sky-800">{activeCard.word}</span>
+              <span className="text-4xl">{activeCard.emoji}</span>
+            </div>
+            <p className="text-sm font-extrabold text-indigo-600">
+              Phonics Sound: <span className="bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-200">{activeCard.sound}</span>
+            </p>
+            <p className="text-xs text-gray-500 font-semibold">{activeCard.example}</p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => speakText(`${activeCard.letter}! ${activeCard.sound}! ${activeCard.word}!`, 'en-US')}
+          className="px-6 py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-extrabold text-base rounded-2xl shadow-md transition-all flex items-center gap-2 min-h-[48px]"
+        >
+          <Volume2 className="w-5 h-5" />
+          <span>Listen Again</span>
+        </button>
+      </div>
+
+      {/* Grid of All Letters */}
+      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-9 gap-3">
+        {PHONICS_FLASHCARDS.map((card) => {
+          const isSelected = activeCard.letter === card.letter;
+          return (
+            <button
+              key={card.letter}
+              onClick={() => handleCardClick(card)}
+              className={`p-3 rounded-2xl border-2 transition-all flex flex-col items-center justify-center text-center ${
+                isSelected
+                  ? 'bg-sky-500 border-sky-600 text-white scale-105 shadow-md font-black'
+                  : 'bg-white border-sky-100 hover:border-sky-300 text-gray-800 font-extrabold hover:bg-sky-50'
+              }`}
+            >
+              <span className="text-xl sm:text-2xl">{card.letter}</span>
+              <span className="text-lg mt-0.5">{card.emoji}</span>
+              <span className={`text-[10px] ${isSelected ? 'text-sky-100' : 'text-gray-400'} font-semibold mt-0.5`}>
+                {card.word}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ================= SAINS AWAL DASHBOARD =================
+const SainsAwalDashboard = ({ childProfile, onStartScienceLevel, onBackToLearn }) => {
+  const levelsData = [
+    {
+      level: 1,
+      title: 'LEVEL 1',
+      age: 'Umur 4–5',
+      heading: 'Deria & Haiwan Asas',
+      topics: ['5 Deria Manusia', 'Haiwan & Bunyi', 'Anggota Badan', 'Warna Alam', 'Haiwan Boleh Terbang/Berenang'],
+      icon: '👂',
+      color: 'from-rose-400 to-pink-500',
+      bgColor: 'bg-rose-50',
+      borderColor: 'border-rose-200',
+      badgeColor: 'bg-rose-500',
+      progress: childProfile.scienceProgress?.level1?.completed ? Math.min(100, Math.round((childProfile.scienceProgress.level1.completed / 30) * 100)) : 33,
+      stars: childProfile.scienceProgress?.level1?.stars || 30,
+      unlocked: true
+    },
+    {
+      level: 2,
+      title: 'LEVEL 2',
+      age: 'Umur 5–6',
+      heading: 'Tumbuhan & Cuaca',
+      topics: ['Keperluan Tumbuhan', 'Bahagian Pokok', 'Cuaca (Hujan, Panas)', 'Benda Hidup & Bukan Hidup', 'Makanan Sihat'],
+      icon: '🌱',
+      color: 'from-emerald-400 to-teal-500',
+      bgColor: 'bg-emerald-50',
+      borderColor: 'border-emerald-200',
+      badgeColor: 'bg-emerald-500',
+      progress: childProfile.scienceProgress?.level2?.completed ? Math.min(100, Math.round((childProfile.scienceProgress.level2.completed / 30) * 100)) : 13,
+      stars: childProfile.scienceProgress?.level2?.stars || 12,
+      unlocked: true
+    },
+    {
+      level: 3,
+      title: 'LEVEL 3',
+      age: 'Umur 6–7',
+      heading: 'Alam Sekitar & Fizikal',
+      topics: ['Terapung & Tenggelam', 'Sifat Bahan (Basah/Kering)', 'Habitat Haiwan', 'Kitaran Air Mudah', 'Pelihara Alam'],
+      icon: '🔬',
+      color: 'from-indigo-400 to-purple-500',
+      bgColor: 'bg-indigo-50',
+      borderColor: 'border-indigo-200',
+      badgeColor: 'bg-indigo-500',
+      progress: childProfile.scienceProgress?.level3?.completed ? Math.min(100, Math.round((childProfile.scienceProgress.level3.completed / 30) * 100)) : 0,
+      stars: childProfile.scienceProgress?.level3?.stars || 0,
+      unlocked: true
+    }
+  ];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="bg-gradient-to-r from-rose-500 via-pink-600 to-purple-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={onBackToLearn}
+            className="flex items-center gap-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl backdrop-blur-md transition-colors min-h-[44px]"
+          >
+            <ArrowLeft className="w-4 h-4" /> Kembali Ke Learn
+          </button>
+          <span className="bg-white text-rose-900 text-xs font-extrabold px-3 py-1 rounded-full shadow-sm flex items-center gap-1">
+            🔬 Sains Awal Module
+          </span>
+        </div>
+
+        <div className="max-w-2xl space-y-2">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+            Terokai Sains Awal! 🔬🌱
+          </h1>
+          <p className="text-rose-100 text-sm font-medium leading-relaxed">
+            Kenali deria manusia, dunia haiwan, tumbuhan, dan keajaiban alam sekitar mengikut Kurikulum KSPK!
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {levelsData.map((lvl) => (
+          <div
+            key={lvl.level}
+            className={`rounded-3xl p-6 border-2 ${lvl.borderColor} ${lvl.bgColor} shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative group`}
+          >
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-4xl p-2.5 bg-white rounded-2xl shadow-xs border border-gray-100">
+                  {lvl.icon}
+                </span>
+                <div className="text-right">
+                  <span className={`text-[11px] font-extrabold text-white ${lvl.badgeColor} px-2.5 py-1 rounded-full shadow-xs uppercase tracking-wider`}>
+                    {lvl.title}
+                  </span>
+                  <div className="text-xs font-extrabold text-gray-500 mt-1">{lvl.age}</div>
+                </div>
+              </div>
+
+              <h2 className="text-xl font-extrabold text-gray-800 mb-2 leading-snug">
+                {lvl.heading}
+              </h2>
+
+              <div className="space-y-1.5 mb-6">
+                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Topik Utama:</div>
+                <ul className="text-xs text-gray-600 space-y-1 font-medium">
+                  {lvl.topics.slice(0, 4).map((top, idx) => (
+                    <li key={idx} className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      <span>{top}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-gray-200/70">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-gray-500">Kemajuan Tahap</span>
+                <span className="text-rose-700 font-extrabold">{lvl.progress}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full bg-gradient-to-r ${lvl.color} transition-all duration-500 rounded-full`}
+                  style={{ width: `${lvl.progress}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between bg-white/80 p-2.5 rounded-2xl border border-gray-200/60 text-xs font-extrabold">
+                <span className="flex items-center gap-1 text-amber-600">
+                  <Star className="w-4 h-4 fill-amber-400" /> {lvl.stars} Bintang
+                </span>
+                <span className="text-gray-500">10 Soalan / Sesi</span>
+              </div>
+
+              <button
+                onClick={() => onStartScienceLevel(lvl.level)}
+                className={`w-full py-3.5 px-4 bg-gradient-to-r ${lvl.color} hover:opacity-95 text-white font-extrabold text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 group-hover:scale-[1.02] active:scale-95 min-h-[48px]`}
+              >
+                <span>Mula Belajar</span>
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ================= ENGLISH PHONICS DASHBOARD =================
+const EnglishPhonicsDashboard = ({ childProfile, onStartEnglishLevel, onBackToLearn }) => {
+  const levelsData = [
+    {
+      level: 1,
+      title: 'LEVEL 1',
+      age: 'Age 4–5',
+      heading: 'Letter Sounds & Phonics ABC',
+      topics: ['Letter Sounds A–Z', 'Phonics ABC', 'Beginning Sounds', 'Phonics Songs', 'Word-Picture Matching'],
+      icon: '🔤',
+      color: 'from-sky-400 to-blue-500',
+      bgColor: 'bg-sky-50',
+      borderColor: 'border-sky-200',
+      badgeColor: 'bg-sky-500',
+      progress: childProfile.englishProgress?.level1?.completed ? Math.min(100, Math.round((childProfile.englishProgress.level1.completed / 30) * 100)) : 50,
+      stars: childProfile.englishProgress?.level1?.stars || 45,
+      unlocked: true
+    },
+    {
+      level: 2,
+      title: 'LEVEL 2',
+      age: 'Age 5–6',
+      heading: 'CVC Words & Blends',
+      topics: ['CVC Blending', 'Rhyming Words', 'Simple Spelling', 'Vowel Sounds (A, E, I, O, U)', 'Word Building'],
+      icon: '🔠',
+      color: 'from-indigo-400 to-purple-500',
+      bgColor: 'bg-indigo-50',
+      borderColor: 'border-indigo-200',
+      badgeColor: 'bg-indigo-500',
+      progress: childProfile.englishProgress?.level2?.completed ? Math.min(100, Math.round((childProfile.englishProgress.level2.completed / 30) * 100)) : 26,
+      stars: childProfile.englishProgress?.level2?.stars || 25,
+      unlocked: true
+    },
+    {
+      level: 3,
+      title: 'LEVEL 3',
+      age: 'Age 6–7',
+      heading: 'Sight Words & Short Stories',
+      topics: ['Sight Words Mastery', 'Simple Sentence Reading', 'Story Comprehension', 'Opposites & Vocabulary', 'Grammar Basics'],
+      icon: '📖',
+      color: 'from-purple-400 to-pink-500',
+      bgColor: 'bg-purple-50',
+      borderColor: 'border-purple-200',
+      badgeColor: 'bg-purple-500',
+      progress: childProfile.englishProgress?.level3?.completed ? Math.min(100, Math.round((childProfile.englishProgress.level3.completed / 30) * 100)) : 6,
+      stars: childProfile.englishProgress?.level3?.stars || 10,
+      unlocked: true
+    }
+  ];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={onBackToLearn}
+            className="flex items-center gap-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl backdrop-blur-md transition-colors min-h-[44px]"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to Learn
+          </button>
+          <span className="bg-white text-indigo-900 text-xs font-extrabold px-3 py-1 rounded-full shadow-sm flex items-center gap-1">
+            🇬🇧 English Phonics Module
+          </span>
+        </div>
+
+        <div className="max-w-2xl space-y-2">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+            Learn English Phonics! 🇬🇧
+          </h1>
+          <p className="text-sky-100 text-sm font-medium leading-relaxed">
+            Master letter sounds, CVC word blending, rhyming, and early reading through fun interactive phonics quizzes!
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {levelsData.map((lvl) => (
+          <div
+            key={lvl.level}
+            className={`rounded-3xl p-6 border-2 ${lvl.borderColor} ${lvl.bgColor} shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative group`}
+          >
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-4xl p-2.5 bg-white rounded-2xl shadow-xs border border-gray-100">
+                  {lvl.icon}
+                </span>
+                <div className="text-right">
+                  <span className={`text-[11px] font-extrabold text-white ${lvl.badgeColor} px-2.5 py-1 rounded-full shadow-xs uppercase tracking-wider`}>
+                    {lvl.title}
+                  </span>
+                  <div className="text-xs font-extrabold text-gray-500 mt-1">{lvl.age}</div>
+                </div>
+              </div>
+
+              <h2 className="text-xl font-extrabold text-gray-800 mb-2 leading-snug">
+                {lvl.heading}
+              </h2>
+
+              <div className="space-y-1.5 mb-6">
+                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Key Topics:</div>
+                <ul className="text-xs text-gray-600 space-y-1 font-medium">
+                  {lvl.topics.slice(0, 4).map((top, idx) => (
+                    <li key={idx} className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                      <span>{top}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-gray-200/70">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-gray-500">Level Progress</span>
+                <span className="text-sky-700 font-extrabold">{lvl.progress}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full bg-gradient-to-r ${lvl.color} transition-all duration-500 rounded-full`}
+                  style={{ width: `${lvl.progress}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between bg-white/80 p-2.5 rounded-2xl border border-gray-200/60 text-xs font-extrabold">
+                <span className="flex items-center gap-1 text-amber-600">
+                  <Star className="w-4 h-4 fill-amber-400" /> {lvl.stars} Stars
+                </span>
+                <span className="text-gray-500">10 Questions / Session</span>
+              </div>
+
+              <button
+                onClick={() => onStartEnglishLevel(lvl.level)}
+                className={`w-full py-3.5 px-4 bg-gradient-to-r ${lvl.color} hover:opacity-95 text-white font-extrabold text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 group-hover:scale-[1.02] active:scale-95 min-h-[48px]`}
+              >
+                <span>Start Phonics</span>
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const MathDashboard = ({ childProfile, onStartMathLevel, onBackToLearn }) => {
+  const levelsData = [
+    {
+      level: 1,
+      title: 'LEVEL 1',
+      age: 'Umur 4–5',
+      heading: 'Kenal Nombor & Kira-Kira',
+      topics: ['Kenal Nombor 1-10', 'Bilangan & Kuantiti', 'Banding Saiz', 'Susunan Nombor', 'Kumpulan Banyak/Sedikit'],
+      icon: '🔢',
+      color: 'from-amber-400 to-orange-500',
+      bgColor: 'bg-amber-50',
+      borderColor: 'border-amber-200',
+      badgeColor: 'bg-amber-500',
+      progress: childProfile.mathProgress?.level1?.completed ? Math.min(100, Math.round((childProfile.mathProgress.level1.completed / 30) * 100)) : 60,
+      stars: childProfile.mathProgress?.level1?.stars || 55,
+      unlocked: true
+    },
+    {
+      level: 2,
+      title: 'LEVEL 2',
+      age: 'Umur 5–6',
+      heading: 'Tambah & Tolak Asas',
+      topics: ['Tambah Hingga 10', 'Tolak Asas', 'Nombor 11-20', 'Corak & Pola', 'Banding Nilai Nombor'],
+      icon: '➕',
+      color: 'from-emerald-400 to-teal-500',
+      bgColor: 'bg-emerald-50',
+      borderColor: 'border-emerald-200',
+      badgeColor: 'bg-emerald-500',
+      progress: childProfile.mathProgress?.level2?.completed ? Math.min(100, Math.round((childProfile.mathProgress.level2.completed / 30) * 100)) : 33,
+      stars: childProfile.mathProgress?.level2?.stars || 30,
+      unlocked: true
+    },
+    {
+      level: 3,
+      title: 'LEVEL 3',
+      age: 'Umur 6–7',
+      heading: 'Bentuk, Wang & Masa',
+      topics: ['Tambah & Tolak 20', 'Bentuk 2D & 3D', 'Mengenal Syiling & Wang', 'Masa & Waktu Jam', 'Masalah Matematik'],
+      icon: '📐',
+      color: 'from-sky-400 to-indigo-500',
+      bgColor: 'bg-sky-50',
+      borderColor: 'border-sky-200',
+      badgeColor: 'bg-sky-500',
+      progress: childProfile.mathProgress?.level3?.completed ? Math.min(100, Math.round((childProfile.mathProgress.level3.completed / 30) * 100)) : 16,
+      stars: childProfile.mathProgress?.level3?.stars || 15,
+      unlocked: true
+    }
+  ];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={onBackToLearn}
+            className="flex items-center gap-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl backdrop-blur-md transition-colors min-h-[44px]"
+          >
+            <ArrowLeft className="w-4 h-4" /> Kembali Ke Learn
+          </button>
+          <span className="bg-white text-gray-900 text-xs font-extrabold px-3 py-1 rounded-full shadow-sm flex items-center gap-1">
+            🔢 Mathematics Module
+          </span>
+        </div>
+
+        <div className="max-w-2xl space-y-2">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+            Jom Belajar Matematik! 🧮
+          </h1>
+          <p className="text-amber-100 text-sm font-medium leading-relaxed">
+            Terokai dunia nombor, pengiraan, bentuk geometri, wang ringgit, dan konsep masa secara interaktif!
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {levelsData.map((lvl) => (
+          <div
+            key={lvl.level}
+            className={`rounded-3xl p-6 border-2 ${lvl.borderColor} ${lvl.bgColor} shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative group`}
+          >
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-4xl p-2.5 bg-white rounded-2xl shadow-xs border border-gray-100">
+                  {lvl.icon}
+                </span>
+                <div className="text-right">
+                  <span className={`text-[11px] font-extrabold text-white ${lvl.badgeColor} px-2.5 py-1 rounded-full shadow-xs uppercase tracking-wider`}>
+                    {lvl.title}
+                  </span>
+                  <div className="text-xs font-extrabold text-gray-500 mt-1">{lvl.age}</div>
+                </div>
+              </div>
+
+              <h2 className="text-xl font-extrabold text-gray-800 mb-2 leading-snug">
+                {lvl.heading}
+              </h2>
+
+              <div className="space-y-1.5 mb-6">
+                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Topik Utama:</div>
+                <ul className="text-xs text-gray-600 space-y-1 font-medium">
+                  {lvl.topics.slice(0, 4).map((top, idx) => (
+                    <li key={idx} className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      <span>{top}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-gray-200/70">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-gray-500">Kemajuan Tahap</span>
+                <span className="text-amber-700 font-extrabold">{lvl.progress}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full bg-gradient-to-r ${lvl.color} transition-all duration-500 rounded-full`}
+                  style={{ width: `${lvl.progress}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between bg-white/80 p-2.5 rounded-2xl border border-gray-200/60 text-xs font-extrabold">
+                <span className="flex items-center gap-1 text-amber-600">
+                  <Star className="w-4 h-4 fill-amber-400" /> {lvl.stars} Bintang
+                </span>
+                <span className="text-gray-500">10 Soalan / Sesi</span>
+              </div>
+
+              <button
+                onClick={() => onStartMathLevel(lvl.level)}
+                className={`w-full py-3.5 px-4 bg-gradient-to-r ${lvl.color} hover:opacity-95 text-white font-extrabold text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 group-hover:scale-[1.02] active:scale-95 min-h-[48px]`}
+              >
+                <span>Mula Belajar</span>
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const BahasaMelayuDashboard = ({ childProfile, onStartBMLevel, onBackToLearn }) => {
+  const levelsData = [
+    {
+      level: 1,
+      title: 'LEVEL 1',
+      age: 'Umur 4–5',
+      heading: 'Kenali Huruf & Perkataan',
+      topics: ['Kenal Huruf', 'Bunyi Huruf', 'Padankan Huruf', 'Suku Kata Mudah', 'Kenal Perkataan', 'Kosa Kata Asas'],
+      icon: '🔤',
+      color: 'from-amber-400 to-orange-500',
+      bgColor: 'bg-amber-50',
+      borderColor: 'border-amber-200',
+      badgeColor: 'bg-amber-500',
+      progress: childProfile.bmProgress?.level1?.completed ? Math.min(100, Math.round((childProfile.bmProgress.level1.completed / 30) * 100)) : 73,
+      stars: childProfile.bmProgress?.level1?.stars || 70,
+      unlocked: true
+    },
+    {
+      level: 2,
+      title: 'LEVEL 2',
+      age: 'Umur 5–6',
+      heading: 'Jom Baca & Eja',
+      topics: ['Suku Kata', 'Cantum Suku Kata', 'Baca Perkataan', 'Ejaan', 'Kosa Kata', 'Ayat Mudah'],
+      icon: '🐝',
+      color: 'from-emerald-400 to-teal-500',
+      bgColor: 'bg-emerald-50',
+      borderColor: 'border-emerald-200',
+      badgeColor: 'bg-emerald-500',
+      progress: childProfile.bmProgress?.level2?.completed ? Math.min(100, Math.round((childProfile.bmProgress.level2.completed / 30) * 100)) : 50,
+      stars: childProfile.bmProgress?.level2?.stars || 50,
+      unlocked: true
+    },
+    {
+      level: 3,
+      title: 'LEVEL 3',
+      age: 'Umur 6–7',
+      heading: 'Jom Baca & Faham',
+      topics: ['Reading', 'Vocabulary', 'Sentence Understanding', 'Spelling', 'Simple Grammar', 'Reading Comprehension'],
+      icon: '📚',
+      color: 'from-sky-400 to-indigo-500',
+      bgColor: 'bg-sky-50',
+      borderColor: 'border-sky-200',
+      badgeColor: 'bg-sky-500',
+      progress: childProfile.bmProgress?.level3?.completed ? Math.min(100, Math.round((childProfile.bmProgress.level3.completed / 30) * 100)) : 26,
+      stars: childProfile.bmProgress?.level3?.stars || 25,
+      unlocked: true
+    }
+  ];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="bg-gradient-to-r from-emerald-500 via-teal-600 to-sky-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={onBackToLearn}
+            className="flex items-center gap-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl backdrop-blur-md transition-colors min-h-[44px]"
+          >
+            <ArrowLeft className="w-4 h-4" /> Kembali Ke Learn
+          </button>
+          <span className="bg-amber-400 text-gray-900 text-xs font-extrabold px-3 py-1 rounded-full shadow-sm flex items-center gap-1">
+            🇲🇾 Bahasa Melayu
+          </span>
+        </div>
+
+        <div className="max-w-2xl space-y-2">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+            Jom Belajar Bahasa Melayu! 🇲🇾
+          </h1>
+          <p className="text-emerald-100 text-sm font-medium leading-relaxed">
+            Pilih tahap pembelajaran mengikut umur anda untuk mula mengumpul bintang dan membina kemahiran membaca!
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {levelsData.map((lvl) => (
+          <div
+            key={lvl.level}
+            className={`rounded-3xl p-6 border-2 ${lvl.borderColor} ${lvl.bgColor} shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative group`}
+          >
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-4xl p-2.5 bg-white rounded-2xl shadow-xs border border-gray-100">
+                  {lvl.icon}
+                </span>
+                <div className="text-right">
+                  <span className={`text-[11px] font-extrabold text-white ${lvl.badgeColor} px-2.5 py-1 rounded-full shadow-xs uppercase tracking-wider`}>
+                    {lvl.title}
+                  </span>
+                  <div className="text-xs font-extrabold text-gray-500 mt-1">{lvl.age}</div>
+                </div>
+              </div>
+
+              <h2 className="text-xl font-extrabold text-gray-800 mb-2 leading-snug">
+                {lvl.heading}
+              </h2>
+
+              <div className="space-y-1.5 mb-6">
+                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider">Topik Utama:</div>
+                <ul className="text-xs text-gray-600 space-y-1 font-medium">
+                  {lvl.topics.slice(0, 4).map((top, idx) => (
+                    <li key={idx} className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span>{top}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-gray-200/70">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-gray-500">Kemajuan Tahap</span>
+                <span className="text-emerald-700 font-extrabold">{lvl.progress}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full bg-gradient-to-r ${lvl.color} transition-all duration-500 rounded-full`}
+                  style={{ width: `${lvl.progress}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between bg-white/80 p-2.5 rounded-2xl border border-gray-200/60 text-xs font-extrabold">
+                <span className="flex items-center gap-1 text-amber-600">
+                  <Star className="w-4 h-4 fill-amber-400" /> {lvl.stars} Bintang
+                </span>
+                <span className="text-gray-500">10 Soalan / Sesi</span>
+              </div>
+
+              <button
+                onClick={() => onStartBMLevel(lvl.level)}
+                className={`w-full py-3.5 px-4 bg-gradient-to-r ${lvl.color} hover:opacity-95 text-white font-extrabold text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 group-hover:scale-[1.02] active:scale-95 min-h-[48px]`}
+              >
+                <span>Mula Belajar</span>
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ResultScreen = ({ sessionResults, subjectTitle, onReturnToDashboard }) => {
+  const [countdown, setCountdown] = useState(RESULT_COUNTDOWN);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          onReturnToDashboard();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [onReturnToDashboard]);
+
+  const { correctCount, totalQuestions, xpEarned, starsEarned } = sessionResults;
+  const accuracy = Math.round((correctCount / totalQuestions) * 100);
+
+  let message = 'Great job! Keep practicing! 🌟';
+  if (accuracy === 100) message = 'Outstanding! 100% Perfect Score! 👑🎉';
+  else if (accuracy >= 70) message = 'Awesome work! Very proud of you! 👏✨';
+  else message = 'Good effort! Let’s practice more! 💪';
+
+  return (
+    <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 sm:p-8 border border-sky-100 shadow-2xl text-center space-y-6 my-6 animate-fade-in">
+      <div className="relative inline-block">
+        <div className="w-24 h-24 bg-gradient-to-tr from-amber-300 to-yellow-400 rounded-full flex items-center justify-center mx-auto shadow-lg text-5xl animate-bounce">
+          🎉
+        </div>
+        <div className="absolute -bottom-2 -right-2 bg-purple-600 text-white p-2 rounded-full border-2 border-white shadow-md">
+          <Trophy className="w-5 h-5" />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <h2 className="text-3xl font-extrabold text-gray-800">Syabas! 🎉</h2>
+        <p className="text-base font-bold text-emerald-600">{subjectTitle} Session Complete!</p>
+        <p className="text-xs text-gray-500 font-medium">{message}</p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-sky-50/70 p-4 rounded-2xl border border-sky-100">
+        <div className="bg-white p-3 rounded-xl border border-sky-100 shadow-xs">
+          <div className="text-xl font-extrabold text-sky-600">
+            {correctCount} / {totalQuestions}
+          </div>
+          <div className="text-[10px] font-bold text-gray-500 uppercase">Correct</div>
+        </div>
+
+        <div className="bg-white p-3 rounded-xl border border-purple-100 shadow-xs">
+          <div className="text-xl font-extrabold text-purple-600">{accuracy}%</div>
+          <div className="text-[10px] font-bold text-gray-500 uppercase">Accuracy</div>
+        </div>
+
+        <div className="bg-white p-3 rounded-xl border border-amber-100 shadow-xs">
+          <div className="text-xl font-extrabold text-amber-500 flex items-center justify-center gap-1">
+            <Star className="w-4 h-4 fill-amber-400" />+{starsEarned}
+          </div>
+          <div className="text-[10px] font-bold text-gray-500 uppercase">Stars</div>
+        </div>
+
+        <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-xs">
+          <div className="text-xl font-extrabold text-emerald-600 flex items-center justify-center gap-0.5">
+            <Zap className="w-4 h-4 text-emerald-500 fill-emerald-400" />+{xpEarned}
+          </div>
+          <div className="text-[10px] font-bold text-gray-500 uppercase">XP</div>
+        </div>
+      </div>
+
+      <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200/80 space-y-2">
+        <div className="flex items-center justify-center gap-2 text-amber-900 font-extrabold text-sm">
+          <Clock className="w-4 h-4 text-amber-600 animate-spin" />
+          <span>
+            <strong className="text-amber-600 text-lg">{countdown}</strong> seconds returning to Dashboard
+          </span>
+        </div>
+
+        <button
+          onClick={onReturnToDashboard}
+          className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold rounded-2xl shadow-md transition-all min-h-[48px]"
+        >
+          Return Now
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const QuestionSession = ({
+  questions,
+  subjectTitle = 'Bahasa Melayu',
+  soundEnabled,
+  onSessionComplete
+}) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(false);
+  const [correctCount, setCorrectCount] = useState(0);
+  const [rewardedQuestions, setRewardedQuestions] = useState(new Set());
+  const timerRef = useRef(null);
+
+  const currentQ = questions[currentIndex] || questions[0];
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const handleSpeakQuestion = () => {
+    const textToSpeak = currentQ.speechText || currentQ.question;
+    const lang = subjectTitle.includes('English') ? 'en-US' : 'ms-MY';
+    speakText(textToSpeak, lang);
+  };
+
+  const handleSelectOption = (index) => {
+    if (isSubmitted) return;
+
+    setSelectedOption(index);
+    setIsSubmitted(true);
+    const correct = index === currentQ.correctAnswer;
+    setIsCorrect(correct);
+
+    playAudioFeedback(correct ? 'correct' : 'incorrect', soundEnabled);
+
+    let newCorrectCount = correctCount;
+    if (correct && !rewardedQuestions.has(currentQ.id)) {
+      newCorrectCount = correctCount + 1;
+      setCorrectCount(newCorrectCount);
+      setRewardedQuestions((prev) => new Set(prev).add(currentQ.id));
+    }
+
+    const delay = correct ? CORRECT_FEEDBACK_DELAY : INCORRECT_FEEDBACK_DELAY;
+
+    timerRef.current = setTimeout(() => {
+      if (currentIndex + 1 < QUESTIONS_PER_SESSION && currentIndex + 1 < questions.length) {
+        setCurrentIndex((prev) => prev + 1);
+        setSelectedOption(null);
+        setIsSubmitted(false);
+        setIsCorrect(false);
+      } else {
+        const xpEarned = newCorrectCount * XP_PER_CORRECT + XP_SESSION_BONUS;
+        const starsEarned = newCorrectCount * STAR_PER_CORRECT;
+
+        onSessionComplete({
+          correctCount: newCorrectCount,
+          totalQuestions: Math.min(QUESTIONS_PER_SESSION, questions.length),
+          xpEarned,
+          starsEarned
+        });
+      }
+    }, delay);
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto bg-white rounded-3xl border border-sky-100 shadow-xl overflow-hidden my-4 animate-fade-in">
+      <div className="bg-gradient-to-r from-emerald-500 via-teal-600 to-sky-600 p-4 sm:p-5 text-white">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs font-extrabold bg-white/20 px-3 py-1 rounded-full backdrop-blur-md">
+            Question {currentIndex + 1} / {Math.min(QUESTIONS_PER_SESSION, questions.length)} • {subjectTitle}
+          </span>
+          <span className="text-xs font-extrabold bg-amber-400 text-gray-900 px-3 py-1 rounded-full shadow-xs">
+            +10 XP / Star ⭐
+          </span>
+        </div>
+
+        <div className="w-full h-2.5 bg-white/20 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-amber-300 transition-all duration-300 rounded-full"
+            style={{ width: `${((currentIndex + 1) / Math.min(QUESTIONS_PER_SESSION, questions.length)) * 100}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="p-6 sm:p-8 space-y-6">
+        <div className="text-center space-y-3">
+          <div className="flex items-center justify-center gap-2">
+            <span className="bg-sky-50 border border-sky-200 text-sky-800 text-xs font-bold px-3 py-1 rounded-full">
+              Topic: {currentQ.topic}
+            </span>
+
+            <button
+              onClick={handleSpeakQuestion}
+              className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-full transition-colors border border-amber-300"
+              title="Listen to Question"
+            >
+              <Volume2 className="w-4 h-4" />
+            </button>
+          </div>
+
+          <h2 className="text-xl sm:text-2xl font-extrabold text-gray-800 leading-snug">
+            {currentQ.question}
+          </h2>
+
+          {currentQ.visual && (
+            <div className="py-4 bg-amber-50/60 rounded-2xl border border-amber-100 flex items-center justify-center text-3xl sm:text-4xl font-bold tracking-wider">
+              {currentQ.visual}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          {currentQ.options.map((option, idx) => {
+            const isSelected = selectedOption === idx;
+            let btnStyle = 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300 hover:bg-emerald-50/50';
+
+            if (isSubmitted) {
+              if (idx === currentQ.correctAnswer) {
+                btnStyle = 'bg-emerald-500 border-emerald-600 text-white font-extrabold shadow-md scale-[1.02]';
+              } else if (isSelected && !isCorrect) {
+                btnStyle = 'bg-rose-500 border-rose-600 text-white font-extrabold';
+              } else {
+                btnStyle = 'bg-gray-100 border-gray-200 text-gray-400 opacity-60';
+              }
+            }
+
+            return (
+              <button
+                key={idx}
+                onClick={() => handleSelectOption(idx)}
+                disabled={isSubmitted}
+                className={`p-4 rounded-2xl border-2 text-base sm:text-lg font-extrabold transition-all duration-200 min-h-[56px] flex items-center justify-center text-center ${btnStyle}`}
+              >
+                {option}
+              </button>
+            );
+          })}
+        </div>
+
+        {isSubmitted && (
+          <div
+            className={`p-4 rounded-2xl border flex items-center justify-between animate-fade-in ${
+              isCorrect
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-amber-50 border-amber-200 text-amber-800'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">{isCorrect ? '🎉' : '💡'}</span>
+              <div>
+                <div className="font-extrabold text-base">
+                  {isCorrect ? '🎉 Correct!' : 'Try again! 😊'}
+                </div>
+                <p className="text-xs font-medium">
+                  {isCorrect ? currentQ.explanation : `Correct answer: ${currentQ.options[currentQ.correctAnswer]}`}
+                </p>
+              </div>
+            </div>
+
+            <span className="text-xs font-extrabold bg-white/80 px-2.5 py-1 rounded-xl shadow-xs">
+              Auto next...
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const HeroSection = ({ childProfile, onStartBM, onStartMath, onStartEnglish, onStartScience, onExploreGames }) => {
+  return (
+    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-sky-400 via-indigo-500 to-purple-600 text-white p-6 sm:p-8 lg:p-10 shadow-xl shadow-sky-200/50 mb-8">
+      <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+      <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-amber-300/20 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="space-y-3 text-center md:text-left max-w-xl">
+          <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-wide border border-white/20">
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>Stage 4A+ Active • Phonics, Math, BM & Sains Awal</span>
+          </div>
+
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight">
+            Selamat Datang, {childProfile.name}! 👋
+          </h1>
+
+          <p className="text-sky-100 text-base sm:text-lg font-medium leading-relaxed">
+            Sedia untuk belajar hari ini? Terokai Bahasa Melayu, Mathematics, English Phonics & Sains Awal!
+          </p>
+
+          <div className="pt-3 flex flex-wrap items-center justify-center md:justify-start gap-2.5 sm:gap-3">
+            <button
+              onClick={onStartBM}
+              className="px-3.5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px]"
+            >
+              <span>🇲🇾 Bahasa Melayu</span>
+            </button>
+
+            <button
+              onClick={onStartMath}
+              className="px-3.5 py-2.5 bg-amber-400 hover:bg-amber-300 text-gray-900 font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px]"
+            >
+              <span>🔢 Mathematics</span>
+            </button>
+
+            <button
+              onClick={onStartEnglish}
+              className="px-3.5 py-2.5 bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px]"
+            >
+              <span>🇬🇧 Phonics</span>
+            </button>
+
+            <button
+              onClick={onStartScience}
+              className="px-3.5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px]"
+            >
+              <span>🔬 Sains Awal</span>
+            </button>
+
+            <button
+              onClick={onExploreGames}
+              className="px-3.5 py-2.5 bg-white/15 hover:bg-white/25 text-white font-bold text-xs sm:text-sm rounded-2xl backdrop-blur-sm border border-white/30 hover:scale-105 active:scale-95 transition-all duration-200 flex items-center gap-1.5 min-h-[44px]"
+            >
+              <Gamepad2 className="w-4 h-4 text-amber-300" />
+              <span>Games</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center bg-white/10 backdrop-blur-md border border-white/20 p-5 rounded-3xl text-center shadow-inner min-w-[200px]">
+          <CerdikMascot className="w-24 h-24 sm:w-28 sm:h-28 my-1" />
+          <div className="text-amber-300 font-bold text-sm mt-1">Cerdik Mascot</div>
+          <p className="text-xs text-sky-100 font-medium">"Jom Pandai Belajar & Bermain!"</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ALL_SUBJECTS = [
+  {
+    id: 'bm',
+    name: 'Bahasa Melayu',
+    icon: '🇲🇾',
+    description: 'Kenali huruf, suku kata, ejaan, dan pemahaman bacaan',
+    available: true,
+    color: 'bg-emerald-500',
+    cardBg: 'bg-gradient-to-br from-emerald-50 to-teal-50',
+    borderColor: 'border-emerald-200'
+  },
+  {
+    id: 'math',
+    name: 'Mathematics',
+    icon: '🔢',
+    description: 'Kenal nombor, kira-kira, bentuk 2D/3D, wang & masa',
+    available: true,
+    color: 'bg-amber-500',
+    cardBg: 'bg-gradient-to-br from-amber-50 to-orange-50',
+    borderColor: 'border-amber-200'
+  },
+  {
+    id: 'english',
+    name: 'English Phonics',
+    icon: '🇬🇧',
+    description: 'Letter sounds, CVC blending, sight words & reading',
+    available: true,
+    color: 'bg-sky-500',
+    cardBg: 'bg-gradient-to-br from-sky-50 to-indigo-50',
+    borderColor: 'border-sky-200'
+  },
+  {
+    id: 'science',
+    name: 'Sains Awal',
+    icon: '🔬',
+    description: 'Haiwan, deria manusia, tumbuhan, cuaca & alam sekitar',
+    available: true,
+    color: 'bg-rose-500',
+    cardBg: 'bg-gradient-to-br from-rose-50 to-pink-50',
+    borderColor: 'border-rose-200'
+  },
+  {
+    id: 'logic',
+    name: 'Logical Thinking',
+    icon: '🧠',
+    description: 'Puzzles, patterns, and spatial reasoning',
+    available: false,
+    color: 'bg-purple-500',
+    cardBg: 'bg-gray-50',
+    borderColor: 'border-gray-200'
+  },
+  {
+    id: 'jawi',
+    name: 'Jawi Asas',
+    icon: '✍️',
+    description: 'Asas mengenal huruf dan bacaan Jawi',
+    available: false,
+    color: 'bg-teal-400',
+    cardBg: 'bg-gray-50',
+    borderColor: 'border-gray-200'
+  }
+];
+
+const ExploreSubjectsSection = ({ onSelectSubject }) => {
+  return (
+    <section className="mb-10">
+      <div className="mb-5">
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-6 h-6 text-purple-500" />
+          <h2 className="text-2xl font-extrabold text-gray-800 tracking-tight">
+            Explore Subjects
+          </h2>
+        </div>
+        <p className="text-xs sm:text-sm text-gray-500 font-medium">
+          Kurikulum awal prasekolah mengikut Standard KSPK Malaysia.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5">
+        {ALL_SUBJECTS.map((subject) => (
+          <div
+            key={subject.id}
+            onClick={() => onSelectSubject(subject)}
+            className={`rounded-2xl p-5 border ${subject.borderColor} ${subject.cardBg} transition-all duration-200 flex flex-col justify-between ${
+              subject.available ? 'hover:shadow-md cursor-pointer hover:-translate-y-1' : 'opacity-80'
+            }`}
+          >
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-3xl">{subject.icon}</span>
+                {subject.available ? (
+                  <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Active Module
+                  </span>
+                ) : (
+                  <span className="bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-xs">
+                    <Lock className="w-3 h-3" /> Stage 5+
+                  </span>
+                )}
+              </div>
+
+              <h3 className="font-extrabold text-lg text-gray-800 mb-1">{subject.name}</h3>
+              <p className="text-xs text-gray-600 font-medium leading-relaxed">
+                {subject.description}
+              </p>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-gray-200/50 flex items-center justify-between text-xs font-extrabold">
+              <span className={subject.available ? 'text-sky-600' : 'text-gray-400'}>
+                {subject.available ? 'Start Learning' : 'Coming Soon'}
+              </span>
+              <ChevronRight className={`w-4 h-4 ${subject.available ? 'text-sky-600' : 'text-gray-400'}`} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+// ================= PARENT DASHBOARD WITH MULTI-SUBJECT ANALYTICS =================
+const ParentDashboard = ({ childProfile }) => {
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <div className="bg-gradient-to-r from-slate-800 via-indigo-900 to-slate-900 rounded-3xl p-6 text-white shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-white/10 rounded-2xl backdrop-blur-md">
+              <ShieldCheck className="w-6 h-6 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-extrabold">Parent Dashboard</h2>
+              <p className="text-xs text-slate-300 font-medium">
+                Kemajuan anak, analytics pembelajaran & kawalan selamat
+              </p>
+            </div>
+          </div>
+          <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold px-3 py-1 rounded-full">
+            Stage 4A+ Analytics
+          </span>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-6">
+        <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
+          <User className="w-5 h-5 text-sky-500" /> Profil Ringkasan Anak
+        </h3>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="p-4 bg-sky-50 rounded-2xl border border-sky-100">
+            <div className="text-xs text-gray-500 font-bold uppercase">Nama Anak</div>
+            <div className="text-xl font-extrabold text-gray-800 mt-1">{childProfile.name}</div>
+            <div className="text-[11px] text-sky-600 font-semibold mt-0.5">Umur {childProfile.age} Tahun</div>
+          </div>
+
+          <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+            <div className="text-xs text-gray-500 font-bold uppercase">Sesi Selesai</div>
+            <div className="text-xl font-extrabold text-purple-700 mt-1">
+              {childProfile.completedActivities}
+            </div>
+            <div className="text-[11px] text-purple-600 font-semibold mt-0.5">Aktiviti Latihan</div>
+          </div>
+
+          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
+            <div className="text-xs text-gray-500 font-bold uppercase">Jumlah Bintang</div>
+            <div className="text-xl font-extrabold text-amber-700 mt-1">
+              ⭐ {childProfile.stars}
+            </div>
+            <div className="text-[11px] text-amber-600 font-semibold mt-0.5">{childProfile.xp} Total XP</div>
+          </div>
+
+          <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100">
+            <div className="text-xs text-gray-500 font-bold uppercase">Streak Belajar</div>
+            <div className="text-xl font-extrabold text-rose-600 mt-1">
+              {childProfile.streakDays} Hari 🔥
+            </div>
+            <div className="text-[11px] text-rose-500 font-semibold mt-0.5">Berterusan</div>
+          </div>
+        </div>
+
+        {/* Subject Performance Breakdown */}
+        <div className="pt-4 border-t border-gray-100 space-y-4">
+          <h4 className="text-base font-extrabold text-gray-800 flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-emerald-500" /> Prestasi Mengikut Subjek
+          </h4>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-emerald-900 flex items-center gap-1 text-sm">
+                  <span>🇲🇾</span> BM
+                </span>
+                <span className="text-xs bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                  88%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-emerald-200 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500 rounded-full w-[88%]" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl border border-amber-200 bg-amber-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-amber-900 flex items-center gap-1 text-sm">
+                  <span>🔢</span> Math
+                </span>
+                <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                  82%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-amber-200 rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full w-[82%]" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl border border-sky-200 bg-sky-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-sky-900 flex items-center gap-1 text-sm">
+                  <span>🇬🇧</span> Phonics
+                </span>
+                <span className="text-xs bg-sky-200 text-sky-800 px-2 py-0.5 rounded-full font-bold">
+                  78%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-sky-200 rounded-full overflow-hidden">
+                <div className="h-full bg-sky-500 rounded-full w-[78%]" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl border border-rose-200 bg-rose-50/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-rose-900 flex items-center gap-1 text-sm">
+                  <span>🔬</span> Sains
+                </span>
+                <span className="text-xs bg-rose-200 text-rose-800 px-2 py-0.5 rounded-full font-bold">
+                  85%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-rose-200 rounded-full overflow-hidden">
+                <div className="h-full bg-rose-500 rounded-full w-[85%]" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ================= PLAYABLE MATH BALLOON GAME =================
+const MathBalloonGame = ({ onAddStars, soundEnabled, onBackToGames }) => {
+  const [score, setScore] = useState(0);
+  const [targetNum, setTargetNum] = useState(5);
+  const [balloons, setBalloons] = useState([]);
+  const [gameOver, setGameOver] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(30);
+
+  const generateNewRound = () => {
+    const target = Math.floor(Math.random() * 8) + 2;
+    setTargetNum(target);
+
+    const items = [];
+    const colors = ['bg-rose-400', 'bg-sky-400', 'bg-emerald-400', 'bg-amber-400', 'bg-purple-400', 'bg-pink-400'];
+
+    for (let i = 0; i < 6; i++) {
+      const isTarget = i < 2 || Math.random() > 0.5;
+      const num = isTarget ? target : Math.floor(Math.random() * 10) + 1;
+      items.push({
+        id: Math.random(),
+        number: num,
+        color: colors[i % colors.length]
+      });
+    }
+    setBalloons(items.sort(() => Math.random() - 0.5));
+  };
+
+  useEffect(() => {
+    generateNewRound();
+  }, []);
+
+  useEffect(() => {
+    if (gameOver) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setGameOver(true);
+          const earned = Math.floor(score / 2);
+          if (earned > 0) onAddStars(earned);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [gameOver, score, onAddStars]);
+
+  const handlePopBalloon = (balloon) => {
+    if (gameOver) return;
+
+    if (balloon.number === targetNum) {
+      playAudioFeedback('pop', soundEnabled);
+      setScore((prev) => prev + 1);
+      setBalloons((prev) => prev.filter((b) => b.id !== balloon.id));
+
+      if (balloons.length <= 2) {
+        generateNewRound();
+      }
+    } else {
+      playAudioFeedback('incorrect', soundEnabled);
+    }
+  };
+
+  return (
+    <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 border border-amber-200 shadow-xl space-y-6 my-4 animate-fade-in text-center">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onBackToGames}
+          className="flex items-center gap-1 text-xs font-bold bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-xl transition-colors min-h-[44px]"
+        >
+          <ArrowLeft className="w-4 h-4" /> Keluar
+        </button>
+
+        <div className="flex items-center gap-3">
+          <span className="bg-amber-100 text-amber-800 text-xs font-extrabold px-3 py-1 rounded-full border border-amber-300">
+            Skor: {score} 🎈
+          </span>
+          <span className="bg-rose-100 text-rose-800 text-xs font-extrabold px-3 py-1 rounded-full border border-rose-300">
+            Masa: {timeLeft}s ⏱️
+          </span>
+        </div>
+      </div>
+
+      {!gameOver ? (
+        <div className="space-y-6">
+          <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+            <span className="text-xs font-extrabold text-amber-700 uppercase tracking-wide">Tugasan Pop Belon</span>
+            <h3 className="text-2xl font-extrabold text-gray-800 mt-0.5">
+              Pop belon dengan nombor <span className="text-amber-600 text-3xl font-black">{targetNum}</span>!
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 py-4 min-h-[220px]">
+            {balloons.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => handlePopBalloon(b)}
+                className={`${b.color} text-white font-black text-2xl h-24 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-all flex items-center justify-center border-4 border-white/40 cursor-pointer animate-bounce min-h-[48px]`}
+              >
+                {b.number}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="py-8 space-y-4">
+          <div className="text-5xl">🎈🎉</div>
+          <h3 className="text-2xl font-extrabold text-gray-800">Masa Tamat!</h3>
+          <p className="text-sm font-bold text-emerald-600">
+            Anda dapat meletupkan {score} belon sasaran!
+          </p>
+          <p className="text-xs text-amber-600 font-bold">
+            Bonus +{Math.floor(score / 2)} Bintang Ditambah! ⭐
+          </p>
+
+          <button
+            onClick={() => {
+              setScore(0);
+              setTimeLeft(30);
+              setGameOver(false);
+              generateNewRound();
+            }}
+            className="py-3 px-6 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold rounded-2xl shadow-md transition-all min-h-[48px]"
+          >
+            Main Lagi 🔄
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ================= PLAYABLE BM WORD MATCH GAME =================
+const BMWordMatchGame = ({ onAddStars, soundEnabled, onBackToGames }) => {
+  const PAIRS = [
+    { id: 1, word: 'BOLA', emoji: '⚽' },
+    { id: 2, word: 'AYAM', emoji: '🐓' },
+    { id: 3, word: 'BUKU', emoji: '📖' },
+    { id: 4, word: 'IKAN', emoji: '🐟' }
+  ];
+
+  const [selectedPicture, setSelectedPicture] = useState(null);
+  const [matchedIds, setMatchedIds] = useState([]);
+  const [wordCards, setWordCards] = useState([]);
+  const [gameComplete, setGameComplete] = useState(false);
+
+  useEffect(() => {
+    setWordCards([...PAIRS].sort(() => Math.random() - 0.5));
+  }, []);
+
+  const handleSelectPicture = (item) => {
+    if (matchedIds.includes(item.id)) return;
+    setSelectedPicture(item);
+  };
+
+  const handleSelectWord = (wordItem) => {
+    if (!selectedPicture) return;
+    if (matchedIds.includes(wordItem.id)) return;
+
+    if (selectedPicture.id === wordItem.id) {
+      playAudioFeedback('match', soundEnabled);
+      const newMatched = [...matchedIds, wordItem.id];
+      setMatchedIds(newMatched);
+      setSelectedPicture(null);
+
+      if (newMatched.length === PAIRS.length) {
+        setGameComplete(true);
+        onAddStars(5);
+      }
+    } else {
+      playAudioFeedback('incorrect', soundEnabled);
+      setSelectedPicture(null);
+    }
+  };
+
+  return (
+    <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 border border-emerald-200 shadow-xl space-y-6 my-4 animate-fade-in text-center">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onBackToGames}
+          className="flex items-center gap-1 text-xs font-bold bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-xl transition-colors min-h-[44px]"
+        >
+          <ArrowLeft className="w-4 h-4" /> Keluar
+        </button>
+
+        <span className="bg-emerald-100 text-emerald-800 text-xs font-extrabold px-3 py-1 rounded-full border border-emerald-300">
+          Padankan Gambar & Perkataan 🔤
+        </span>
+      </div>
+
+      {!gameComplete ? (
+        <div className="space-y-6">
+          <p className="text-xs font-bold text-gray-600">
+            Tekan gambar dahulu, kemudian tekan perkataan yang sepadan!
+          </p>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <h4 className="text-xs font-extrabold text-emerald-700 uppercase">Gambar 🖼️</h4>
+              {PAIRS.map((item) => {
+                const isMatched = matchedIds.includes(item.id);
+                const isSelected = selectedPicture?.id === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleSelectPicture(item)}
+                    disabled={isMatched}
+                    className={`w-full p-4 rounded-2xl text-4xl border-2 transition-all flex items-center justify-center min-h-[60px] ${
+                      isMatched
+                        ? 'bg-emerald-100 border-emerald-300 opacity-50 cursor-default'
+                        : isSelected
+                        ? 'bg-emerald-500 border-emerald-600 scale-105 shadow-md'
+                        : 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {item.emoji}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-extrabold text-sky-700 uppercase">Perkataan 📝</h4>
+              {wordCards.map((item) => {
+                const isMatched = matchedIds.includes(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleSelectWord(item)}
+                    disabled={isMatched}
+                    className={`w-full p-4 rounded-2xl text-lg font-black tracking-wider border-2 transition-all flex items-center justify-center min-h-[60px] ${
+                      isMatched
+                        ? 'bg-emerald-100 border-emerald-300 text-emerald-700 opacity-50 cursor-default'
+                        : 'bg-sky-50 border-sky-200 text-sky-900 hover:bg-sky-100'
+                    }`}
+                  >
+                    {item.word}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="py-8 space-y-4">
+          <div className="text-5xl">🏆🌟</div>
+          <h3 className="text-2xl font-extrabold text-gray-800">Syabas! Berjaya Match Semua!</h3>
+          <p className="text-sm font-bold text-emerald-600">
+            Kemahiran membaca dan padanan suku kata anda semakin hebat!
+          </p>
+          <p className="text-xs text-amber-600 font-bold">
+            Ganjaran +5 Bintang Ditambah! ⭐
+          </p>
+
+          <button
+            onClick={() => {
+              setMatchedIds([]);
+              setSelectedPicture(null);
+              setGameComplete(false);
+              setWordCards([...PAIRS].sort(() => Math.random() - 0.5));
+            }}
+            className="py-3 px-6 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold rounded-2xl shadow-md transition-all min-h-[48px]"
+          >
+            Main Lagi 🔄
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ================= PLAYABLE PHONICS SAFARI GAME =================
+const PhonicsSafariGame = ({ onAddStars, soundEnabled, onBackToGames }) => {
+  const SAFARI_ANIMALS = [
+    { id: 'lion', name: 'Lion', letter: 'L', sound: '/l/', emoji: '🦁' },
+    { id: 'monkey', name: 'Monkey', letter: 'M', sound: '/m/', emoji: '🐒' },
+    { id: 'zebra', name: 'Zebra', letter: 'Z', sound: '/z/', emoji: '🦓' },
+    { id: 'elephant', name: 'Elephant', letter: 'E', sound: '/e/', emoji: '🐘' },
+    { id: 'giraffe', name: 'Giraffe', letter: 'G', sound: '/g/', emoji: '🦒' }
+  ];
+
+  const [targetAnimal, setTargetAnimal] = useState(SAFARI_ANIMALS[0]);
+  const [rescuedCount, setRescuedCount] = useState(0);
+  const [options, setOptions] = useState([]);
+  const [isWon, setIsWon] = useState(false);
+
+  const startNewRound = (count = rescuedCount) => {
+    if (count >= 5) {
+      setIsWon(true);
+      onAddStars(6);
+      return;
+    }
+    const target = SAFARI_ANIMALS[count];
+    setTargetAnimal(target);
+
+    // speak target sound
+    speakText(`Find the safari animal starting with letter ${target.letter}!`, 'en-US');
+
+    const shuffled = [...SAFARI_ANIMALS].sort(() => Math.random() - 0.5);
+    setOptions(shuffled);
+  };
+
+  useEffect(() => {
+    startNewRound(0);
+  }, []);
+
+  const handleAnimalClick = (animal) => {
+    if (animal.id === targetAnimal.id) {
+      playAudioFeedback('correct', soundEnabled);
+      speakText(`Correct! ${targetAnimal.name}!`, 'en-US');
+      const nextCount = rescuedCount + 1;
+      setRescuedCount(nextCount);
+      startNewRound(nextCount);
+    } else {
+      playAudioFeedback('incorrect', soundEnabled);
+      speakText(`Try again! Find letter ${targetAnimal.letter}`, 'en-US');
+    }
+  };
+
+  return (
+    <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 border border-sky-200 shadow-xl space-y-6 my-4 animate-fade-in text-center">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onBackToGames}
+          className="flex items-center gap-1 text-xs font-bold bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-xl transition-colors min-h-[44px]"
+        >
+          <ArrowLeft className="w-4 h-4" /> Exit Safari
+        </button>
+
+        <span className="bg-sky-100 text-sky-800 text-xs font-extrabold px-3 py-1 rounded-full border border-sky-300">
+          Safari Rescued: {rescuedCount} / 5 🦁
+        </span>
+      </div>
+
+      {!isWon ? (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-5 rounded-2xl shadow-md space-y-2">
+            <span className="text-xs font-bold bg-white/20 px-3 py-0.5 rounded-full uppercase">Phonics Safari Task</span>
+            <h3 className="text-2xl font-black">
+              Rescue the animal starting with letter{' '}
+              <span className="text-amber-300 text-3xl font-black underline">{targetAnimal.letter}</span>!
+            </h3>
+            <button
+              onClick={() => speakText(`Letter ${targetAnimal.letter}! Sound ${targetAnimal.sound}`, 'en-US')}
+              className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1 rounded-xl text-xs font-bold border border-white/30"
+            >
+              <Volume2 className="w-3.5 h-3.5" /> Hear Sound
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 py-2">
+            {options.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => handleAnimalClick(item)}
+                className="p-4 bg-sky-50 hover:bg-sky-100 border-2 border-sky-200 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all hover:scale-105 active:scale-95 shadow-sm min-h-[80px]"
+              >
+                <span className="text-4xl">{item.emoji}</span>
+                <span className="text-sm font-black text-gray-800">{item.name}</span>
+                <span className="text-[10px] font-bold text-sky-600 bg-white px-2 py-0.5 rounded-md border border-sky-100">
+                  Letter {item.letter}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="py-8 space-y-4">
+          <div className="text-5xl">🦁🎉👑</div>
+          <h3 className="text-2xl font-extrabold text-gray-800">Safari Hero Completed!</h3>
+          <p className="text-sm font-bold text-emerald-600">
+            You rescued all 5 safari animals using phonics letter sounds!
+          </p>
+          <p className="text-xs text-amber-600 font-bold">
+            Safari Bonus +6 Stars Earned! ⭐
+          </p>
+
+          <button
+            onClick={() => {
+              setRescuedCount(0);
+              setIsWon(false);
+              startNewRound(0);
+            }}
+            className="py-3 px-6 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold rounded-2xl shadow-md transition-all min-h-[48px]"
+          >
+            Play Safari Again 🔄
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const GamesPage = ({ soundEnabled, onAddStars }) => {
+  const [activeGame, setActiveGame] = useState(null);
+
+  if (activeGame === 'math-balloon') {
+    return (
+      <MathBalloonGame
+        soundEnabled={soundEnabled}
+        onAddStars={onAddStars}
+        onBackToGames={() => setActiveGame(null)}
+      />
+    );
+  }
+
+  if (activeGame === 'bm-match') {
+    return (
+      <BMWordMatchGame
+        soundEnabled={soundEnabled}
+        onAddStars={onAddStars}
+        onBackToGames={() => setActiveGame(null)}
+      />
+    );
+  }
+
+  if (activeGame === 'phonics-safari') {
+    return (
+      <PhonicsSafariGame
+        soundEnabled={soundEnabled}
+        onAddStars={onAddStars}
+        onBackToGames={() => setActiveGame(null)}
+      />
+    );
+  }
+
+  const gamesList = [
+    {
+      id: 'math-balloon',
+      title: 'Math Balloon Pop 🎈',
+      subject: 'Mathematics',
+      level: 'Age 4–7',
+      bg: 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200',
+      actionText: 'Main Sekarang!',
+      playable: true
+    },
+    {
+      id: 'bm-match',
+      title: 'Bahasa Melayu Word Match 🔤',
+      subject: 'Bahasa Melayu',
+      level: 'Age 4–7',
+      bg: 'bg-emerald-50 border-emerald-200',
+      actionText: 'Main Sekarang!',
+      playable: true
+    },
+    {
+      id: 'phonics-safari',
+      title: 'Phonics Safari 🦁',
+      subject: 'English Phonics',
+      level: 'Age 4–6',
+      bg: 'bg-sky-50 border-sky-200',
+      actionText: 'Play Safari Game!',
+      playable: true
+    },
+    {
+      id: 'shape-builder',
+      title: 'Shape Builder Puzzle 🧩',
+      subject: 'Logic',
+      level: 'Age 4–7',
+      bg: 'bg-purple-50 border-purple-200',
+      actionText: 'Akan Datang',
+      playable: false
+    }
+  ];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
+        <div className="max-w-xl space-y-2">
+          <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5">
+            <Gamepad2 className="w-4 h-4" /> Educational Mini-Games Hub
+          </div>
+          <h1 className="text-3xl font-extrabold">Fun Learning Games</h1>
+          <p className="text-xs sm:text-sm text-amber-100 font-medium">
+            Main mini-game matematik, bahasa & phonics safari sambil mengumpul bintang ganjaran!
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {gamesList.map((game) => (
+          <div
+            key={game.id}
+            className={`rounded-2xl p-5 border ${game.bg} flex flex-col justify-between shadow-xs hover:shadow-md transition-all`}
+          >
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-white px-2 py-0.5 rounded-md border border-gray-200">
+                {game.subject}
+              </span>
+              <h3 className="font-extrabold text-lg text-gray-800 mt-2">{game.title}</h3>
+              <p className="text-xs text-gray-500 mt-1">{game.level}</p>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-gray-200/60 flex items-center justify-between">
+              {game.playable ? (
+                <button
+                  onClick={() => setActiveGame(game.id)}
+                  className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 min-h-[40px]"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  <span>{game.actionText}</span>
+                </button>
+              ) : (
+                <>
+                  <span className="bg-gray-100 text-gray-600 text-[10px] font-extrabold px-2.5 py-1 rounded-full border border-gray-200">
+                    Akan Datang
+                  </span>
+                  <Lock className="w-4 h-4 text-gray-400" />
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ================= PRINTABLE CERTIFICATE MODAL =================
+const CertificateModal = ({ childProfile, onClose }) => {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-2xl w-full border-4 border-amber-300 shadow-2xl relative space-y-6 text-center animate-fade-in my-8">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 font-bold p-2"
+        >
+          ✕
+        </button>
+
+        <div className="border-4 border-dashed border-amber-200 p-6 rounded-2xl space-y-4 bg-amber-50/30">
+          <div className="flex justify-center items-center gap-2">
+            <CerdikMascot className="w-12 h-12" />
+            <span className="text-2xl font-black text-amber-600">CerdikKids Learning Academy</span>
+          </div>
+
+          <h2 className="text-3xl font-black text-gray-800 uppercase tracking-widest">
+            Sijil Anugerah Kecemerlangan 🏆
+          </h2>
+          <p className="text-xs font-bold text-gray-500">Dengan ini dianugerahkan kepada:</p>
+
+          <div className="text-3xl font-black text-indigo-700 underline decoration-amber-400 decoration-wavy">
+            {childProfile.name}
+          </div>
+
+          <p className="text-sm font-medium text-gray-600 max-w-md mx-auto leading-relaxed">
+            Kerana telah menunjukkan pencapaian cemerlang dalam mempelajari Bahasa Melayu, Mathematics, English Phonics & Sains Awal dengan mengumpul
+            <strong className="text-amber-600 font-extrabold"> {childProfile.stars} Bintang ⭐</strong>!
+          </p>
+
+          <div className="flex justify-around items-center pt-6 text-xs text-gray-500 border-t border-amber-200">
+            <div>
+              <div className="font-extrabold text-gray-800">CerdikKids Team</div>
+              <div>Pengarah Kurikulum KSPK</div>
+            </div>
+
+            <div className="w-16 h-16 bg-amber-400/20 rounded-full border-2 border-amber-400 flex items-center justify-center text-2xl font-bold">
+              🎖️
+            </div>
+
+            <div>
+              <div className="font-extrabold text-gray-800">{new Date().toLocaleDateString('ms-MY')}</div>
+              <div>Tarikh Anugerah</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-center gap-3">
+          <button
+            onClick={() => window.print()}
+            className="px-6 py-3 bg-sky-500 hover:bg-sky-600 text-white font-extrabold rounded-2xl shadow-md transition-all flex items-center gap-2 min-h-[44px]"
+          >
+            <Printer className="w-4 h-4" /> Cetak Sijil
+          </button>
+          <button
+            onClick={onClose}
+            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold rounded-2xl transition-all min-h-[44px]"
+          >
+            Tutup
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const RewardsPage = ({ childProfile }) => {
+  const [showCert, setShowCert] = useState(false);
+
+  const badgesList = [
+    { name: 'BM Juara Suku Kata', icon: '🇲🇾', desc: 'Lengkapkan tahap suku kata Bahasa Melayu', unlocked: true },
+    { name: 'Math Wizard 🧮', icon: '🔢', desc: 'Selesaikan latihan Matematik Level 1', unlocked: true },
+    { name: 'Phonics Hero 🇬🇧', icon: '🔊', desc: 'Kuasai bunyi huruf awal & CVC blending', unlocked: true },
+    { name: 'Sains Explorer 🔬', icon: '🌱', desc: 'Selesaikan modul Sains Awal Deria & Haiwan', unlocked: true },
+    { name: 'Safari Rescue 🦁', icon: '🤠', desc: 'Main game Phonics Safari Rescue', unlocked: true },
+    { name: 'Super Cerdik 4A+', icon: '👑', desc: 'Pencapaian cemerlang Stage 4A+ Engine', unlocked: true }
+  ];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {showCert && (
+        <CertificateModal childProfile={childProfile} onClose={() => setShowCert(false)} />
+      )}
+
+      <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div>
+            <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 mb-2">
+              <Trophy className="w-4 h-4 text-amber-300" /> Achievement Cabinet
+            </div>
+            <h1 className="text-3xl font-extrabold">{childProfile.name}’s Rewards & Badges</h1>
+            <p className="text-xs sm:text-sm text-purple-100 font-medium">
+              Teruskan belajar setiap hari untuk melepaskan lencana baharu!
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-center min-w-[140px]">
+              <div className="text-2xl font-extrabold text-amber-300 flex items-center justify-center gap-1">
+                ⭐ {childProfile.stars}
+              </div>
+              <div className="text-xs text-purple-200 font-bold uppercase">Jumlah Bintang</div>
+            </div>
+
+            <button
+              onClick={() => setShowCert(true)}
+              className="p-4 bg-amber-400 hover:bg-amber-300 text-gray-900 font-extrabold text-xs rounded-2xl shadow-lg transition-all flex flex-col items-center justify-center min-h-[72px]"
+            >
+              <Award className="w-6 h-6 mb-1" />
+              <span>Sijil Anugerah</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4">
+        <h2 className="text-xl font-extrabold text-gray-800 flex items-center gap-2">
+          🏅 Koleksi Lencana ({childProfile.badges} Unlocked)
+        </h2>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-4">
+          {badgesList.map((badge, idx) => (
+            <div
+              key={idx}
+              className={`p-4 rounded-2xl border text-center transition-all ${
+                badge.unlocked
+                  ? 'bg-amber-50/60 border-amber-200 text-gray-800 shadow-xs'
+                  : 'bg-gray-50 border-gray-200 text-gray-400 opacity-60'
+              }`}
+            >
+              <div className="text-4xl mb-2">{badge.icon}</div>
+              <div className="font-extrabold text-sm text-gray-800">{badge.name}</div>
+              <div className="text-[10px] text-gray-500 font-medium mt-1 leading-tight">{badge.desc}</div>
+              <div className="mt-3">
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Unlocked
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Footer = () => {
+  return (
+    <footer className="mt-16 bg-white border-t border-sky-100 py-8 px-4 text-center text-xs text-gray-500">
+      <div className="max-w-6xl mx-auto space-y-3">
+        <div className="flex items-center justify-center gap-2 text-gray-700 font-extrabold text-base">
+          <CerdikMascot className="w-6 h-6" />
+          <span>CerdikKids Platform • Stage 4A+ Engine</span>
+        </div>
+        <p className="max-w-md mx-auto text-gray-500 font-medium leading-relaxed">
+          Platform pembelajaran awal prasekolah Malaysia (Bahasa Melayu, Mathematics, English Phonics & Sains Awal) umur 4–7.
+        </p>
+        <div className="flex items-center justify-center gap-4 text-gray-400 text-[11px] font-semibold pt-2">
+          <span>🔒 100% Selamat Kanak-Kanak</span>
+          <span>•</span>
+          <span>🇲🇾 Standard KSPK Malaysia</span>
+          <span>•</span>
+          <span>✨ Stage 4A+ Released</span>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+export default function App() {
+  const [currentView, setCurrentView] = useState('home');
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  const [childProfile, setChildProfile] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cerdikkids_profile_stage4a');
+      return saved ? JSON.parse(saved) : INITIAL_CHILD_PROFILE;
+    } catch (e) {
+      return INITIAL_CHILD_PROFILE;
+    }
+  });
+
+  const [activeSubject, setActiveSubject] = useState('bm');
+  const [activeQuestions, setActiveQuestions] = useState([]);
+  const [sessionResults, setSessionResults] = useState(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('cerdikkids_profile_stage4a', JSON.stringify(childProfile));
+    } catch (e) {
+      // LocalStorage fallback
+    }
+  }, [childProfile]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentView]);
+
+  const handleStartBMLevel = (levelNumber) => {
+    setActiveSubject('bm');
+    const levelQuestions = BAHASA_MELAYU_QUESTIONS.filter((q) => q.level === levelNumber);
+    const shuffled = [...levelQuestions].sort(() => Math.random() - 0.5);
+    setActiveQuestions(shuffled.slice(0, QUESTIONS_PER_SESSION));
+    setCurrentView('session');
+  };
+
+  const handleStartMathLevel = (levelNumber) => {
+    setActiveSubject('math');
+    const levelQuestions = MATHEMATICS_QUESTIONS.filter((q) => q.level === levelNumber);
+    const shuffled = [...levelQuestions].sort(() => Math.random() - 0.5);
+    setActiveQuestions(shuffled.slice(0, QUESTIONS_PER_SESSION));
+    setCurrentView('session');
+  };
+
+  const handleStartEnglishLevel = (levelNumber) => {
+    setActiveSubject('english');
+    const levelQuestions = ENGLISH_PHONICS_QUESTIONS.filter((q) => q.level === levelNumber);
+    const shuffled = [...levelQuestions].sort(() => Math.random() - 0.5);
+    setActiveQuestions(shuffled.slice(0, QUESTIONS_PER_SESSION));
+    setCurrentView('session');
+  };
+
+  const handleStartScienceLevel = (levelNumber) => {
+    setActiveSubject('science');
+    const levelQuestions = SCIENCE_QUESTIONS.filter((q) => q.level === levelNumber);
+    const shuffled = [...levelQuestions].sort(() => Math.random() - 0.5);
+    setActiveQuestions(shuffled.slice(0, QUESTIONS_PER_SESSION));
+    setCurrentView('session');
+  };
+
+  const handleSessionComplete = (results) => {
+    const { xpEarned, starsEarned } = results;
+
+    setChildProfile((prev) => ({
+      ...prev,
+      stars: prev.stars + starsEarned,
+      xp: (prev.xp || 780) + xpEarned,
+      completedActivities: prev.completedActivities + 1
+    }));
+
+    setSessionResults(results);
+    setCurrentView('results');
+  };
+
+  const handleAddStarsFromGame = (bonusStars) => {
+    setChildProfile((prev) => ({
+      ...prev,
+      stars: prev.stars + bonusStars
+    }));
+  };
+
+  const handleSelectSubject = (subject) => {
+    if (subject.id === 'bm') {
+      setCurrentView('bm-dashboard');
+    } else if (subject.id === 'math') {
+      setCurrentView('math-dashboard');
+    } else if (subject.id === 'english') {
+      setCurrentView('english-dashboard');
+    } else if (subject.id === 'science') {
+      setCurrentView('science-dashboard');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-sky-50/60 via-white to-purple-50/30 text-gray-800 flex flex-col font-sans pb-20 md:pb-8 selection:bg-sky-200">
+      <Header
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        childProfile={childProfile}
+        soundEnabled={soundEnabled}
+        setSoundEnabled={setSoundEnabled}
+      />
+
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 pt-6">
+        {currentView === 'home' && (
+          <div className="animate-fade-in space-y-6">
+            <HeroSection
+              childProfile={childProfile}
+              onStartBM={() => setCurrentView('bm-dashboard')}
+              onStartMath={() => setCurrentView('math-dashboard')}
+              onStartEnglish={() => setCurrentView('english-dashboard')}
+              onStartScience={() => setCurrentView('science-dashboard')}
+              onExploreGames={() => setCurrentView('games')}
+            />
+
+            <ExploreSubjectsSection onSelectSubject={handleSelectSubject} />
+          </div>
+        )}
+
+        {currentView === 'learn' && (
+          <div className="animate-fade-in space-y-6">
+            <div className="bg-gradient-to-r from-sky-500 to-indigo-600 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
+              <h1 className="text-3xl font-extrabold mb-1">Learning Curriculum</h1>
+              <p className="text-sky-100 text-xs sm:text-sm font-medium">
+                Pilih modul pembelajaran di bawah untuk mula belajar.
+              </p>
+            </div>
+
+            <ExploreSubjectsSection onSelectSubject={handleSelectSubject} />
+          </div>
+        )}
+
+        {currentView === 'soundboard' && <PhonicsSoundboard />}
+
+        {currentView === 'bm-dashboard' && (
+          <BahasaMelayuDashboard
+            childProfile={childProfile}
+            onStartBMLevel={handleStartBMLevel}
+            onBackToLearn={() => setCurrentView('learn')}
+          />
+        )}
+
+        {currentView === 'math-dashboard' && (
+          <MathDashboard
+            childProfile={childProfile}
+            onStartMathLevel={handleStartMathLevel}
+            onBackToLearn={() => setCurrentView('learn')}
+          />
+        )}
+
+        {currentView === 'english-dashboard' && (
+          <EnglishPhonicsDashboard
+            childProfile={childProfile}
+            onStartEnglishLevel={handleStartEnglishLevel}
+            onBackToLearn={() => setCurrentView('learn')}
+          />
+        )}
+
+        {currentView === 'science-dashboard' && (
+          <SainsAwalDashboard
+            childProfile={childProfile}
+            onStartScienceLevel={handleStartScienceLevel}
+            onBackToLearn={() => setCurrentView('learn')}
+          />
+        )}
+
+        {currentView === 'session' && (
+          <QuestionSession
+            questions={activeQuestions}
+            subjectTitle={
+              activeSubject === 'bm'
+                ? 'Bahasa Melayu 🇲🇾'
+                : activeSubject === 'math'
+                ? 'Mathematics 🔢'
+                : activeSubject === 'english'
+                ? 'English Phonics 🇬🇧'
+                : 'Sains Awal 🔬'
+            }
+            soundEnabled={soundEnabled}
+            onSessionComplete={handleSessionComplete}
+          />
+        )}
+
+        {currentView === 'results' && sessionResults && (
+          <ResultScreen
+            sessionResults={sessionResults}
+            subjectTitle={
+              activeSubject === 'bm'
+                ? 'Bahasa Melayu'
+                : activeSubject === 'math'
+                ? 'Mathematics'
+                : activeSubject === 'english'
+                ? 'English Phonics'
+                : 'Sains Awal'
+            }
+            onReturnToDashboard={() =>
+              setCurrentView(
+                activeSubject === 'bm'
+                  ? 'bm-dashboard'
+                  : activeSubject === 'math'
+                  ? 'math-dashboard'
+                  : activeSubject === 'english'
+                  ? 'english-dashboard'
+                  : 'science-dashboard'
+              )
+            }
+          />
+        )}
+
+        {currentView === 'games' && (
+          <GamesPage
+            soundEnabled={soundEnabled}
+            onAddStars={handleAddStarsFromGame}
+          />
+        )}
+
+        {currentView === 'rewards' && <RewardsPage childProfile={childProfile} />}
+
+        {currentView === 'parent' && <ParentDashboard childProfile={childProfile} />}
+      </main>
+
+      <Footer />
+
+      <MobileBottomNav currentView={currentView} setCurrentView={setCurrentView} />
+    </div>
+  );
+}
